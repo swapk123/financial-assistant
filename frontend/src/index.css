@@ -175,6 +175,7 @@ body {
   transition: all 0.3s ease;
   background: white;
   font-weight: 500;
+  padding-left: 44px;
 }
 
 .form-input:focus {
@@ -191,7 +192,7 @@ body {
 
 .form-icon {
   position: absolute;
-  left: 20px;
+  right: 20px;
   top: 50%;
   transform: translateY(-50%);
   color: var(--gray);

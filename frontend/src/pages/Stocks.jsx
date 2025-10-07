@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { financialAPI } from '../utils/api';
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  Search, 
-  RefreshCw, 
+import React, { useState, useEffect } from "react";
+import { financialAPI } from "../utils/api";
+import {
+  TrendingUp,
+  TrendingDown,
+  Search,
+  RefreshCw,
   DollarSign,
   Building2,
   Activity,
@@ -12,30 +12,30 @@ import {
   ArrowDown,
   Minus,
   Sparkles,
-  AlertCircle
-} from 'lucide-react';
-import LoadingSpinner from '../components/common/LoadingSpinner';
+  AlertCircle,
+} from "lucide-react";
+import LoadingSpinner from "../components/common/LoadingSpinner";
 
 const Stocks = () => {
   const [stocks, setStocks] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [searchSymbol, setSearchSymbol] = useState('');
-  const [error, setError] = useState('');
+  const [searchSymbol, setSearchSymbol] = useState("");
+  const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
 
   const popularStocks = [
-    { symbol: 'AAPL', name: 'Apple Inc.' },
-    { symbol: 'GOOGL', name: 'Alphabet Inc.' },
-    { symbol: 'MSFT', name: 'Microsoft' },
-    { symbol: 'TSLA', name: 'Tesla Inc.' },
-    { symbol: 'AMZN', name: 'Amazon.com' },
-    { symbol: 'META', name: 'Meta Platforms' },
-    { symbol: 'NFLX', name: 'Netflix' },
-    { symbol: 'NVDA', name: 'NVIDIA Corp' },
-    { symbol: 'JPM', name: 'JPMorgan Chase' },
-    { symbol: 'JNJ', name: 'Johnson & Johnson' },
-    { symbol: 'V', name: 'Visa Inc.' },
-    { symbol: 'WMT', name: 'Walmart Inc.' }
+    { symbol: "AAPL", name: "Apple Inc." },
+    { symbol: "GOOGL", name: "Alphabet Inc." },
+    { symbol: "MSFT", name: "Microsoft" },
+    { symbol: "TSLA", name: "Tesla Inc." },
+    { symbol: "AMZN", name: "Amazon.com" },
+    { symbol: "META", name: "Meta Platforms" },
+    { symbol: "NFLX", name: "Netflix" },
+    { symbol: "NVDA", name: "NVIDIA Corp" },
+    { symbol: "JPM", name: "JPMorgan Chase" },
+    { symbol: "JNJ", name: "Johnson & Johnson" },
+    { symbol: "V", name: "Visa Inc." },
+    { symbol: "WMT", name: "Walmart Inc." },
   ];
 
   useEffect(() => {
@@ -44,21 +44,23 @@ const Stocks = () => {
 
   const loadPopularStocks = async () => {
     setLoading(true);
-    setError('');
+    setError("");
     setRefreshing(true);
-    
+
     try {
       // Load first 6 popular stocks for better performance
-      const stockPromises = popularStocks.slice(0, 6).map(stock => 
-        financialAPI.getStockData(stock.symbol)
-      );
-      
+      const stockPromises = popularStocks
+        .slice(0, 6)
+        .map((stock) => financialAPI.getStockData(stock.symbol));
+
       const results = await Promise.all(stockPromises);
-      const successfulStocks = results.map(result => result.data).filter(stock => stock.success);
+      const successfulStocks = results
+        .map((result) => result.data)
+        .filter((stock) => stock.success);
       setStocks(successfulStocks);
     } catch (err) {
-      setError('Failed to load stock data. Please try again.');
-      console.error('Stocks error:', err);
+      setError("Failed to load stock data. Please try again.");
+      console.error("Stocks error:", err);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -67,24 +69,30 @@ const Stocks = () => {
 
   const searchStock = async () => {
     if (!searchSymbol.trim()) return;
-    
+
     setLoading(true);
-    setError('');
-    
+    setError("");
+
     try {
-      const response = await financialAPI.getStockData(searchSymbol.toUpperCase());
+      const response = await financialAPI.getStockData(
+        searchSymbol.toUpperCase()
+      );
       if (response.data.success) {
         // Add to stocks list if not already there
-        if (!stocks.find(stock => stock.symbol === response.data.symbol)) {
-          setStocks(prev => [response.data, ...prev.slice(0, 11)]); // Keep max 12 stocks
+        if (!stocks.find((stock) => stock.symbol === response.data.symbol)) {
+          setStocks((prev) => [response.data, ...prev.slice(0, 11)]); // Keep max 12 stocks
         }
-        setSearchSymbol('');
+        setSearchSymbol("");
       } else {
-        setError('Stock symbol not found. Please check the symbol and try again.');
+        setError(
+          "Stock symbol not found. Please check the symbol and try again."
+        );
       }
     } catch (err) {
-      setError('Failed to fetch stock data. Please check your connection and try again.');
-      console.error('Search error:', err);
+      setError(
+        "Failed to fetch stock data. Please check your connection and try again."
+      );
+      console.error("Search error:", err);
     } finally {
       setLoading(false);
     }
@@ -97,26 +105,24 @@ const Stocks = () => {
 
   const getPriceChangeIcon = (change) => {
     if (!change && change !== 0) return <Minus size={16} />;
-    return change >= 0 ? 
-      <ArrowUp size={16} /> : 
-      <ArrowDown size={16} />;
+    return change >= 0 ? <ArrowUp size={16} /> : <ArrowDown size={16} />;
   };
 
   const getPriceChangeClass = (change) => {
-    if (!change && change !== 0) return 'neutral';
-    return change >= 0 ? 'positive' : 'negative';
+    if (!change && change !== 0) return "neutral";
+    return change >= 0 ? "positive" : "negative";
   };
 
   const formatPrice = (price) => {
-    if (typeof price !== 'number') return '0.00';
+    if (typeof price !== "number") return "0.00";
     return price.toFixed(2);
   };
 
   const formatChange = (change, percent) => {
-    if (!change && change !== 0) return 'N/A';
-    const sign = change >= 0 ? '+' : '';
+    if (!change && change !== 0) return "N/A";
+    const sign = change >= 0 ? "+" : "";
     const changeStr = `${sign}${change.toFixed(2)}`;
-    const percentStr = percent ? ` (${sign}${percent.toFixed(2)}%)` : '';
+    const percentStr = percent ? ` (${sign}${percent.toFixed(2)}%)` : "";
     return changeStr + percentStr;
   };
 
@@ -124,11 +130,11 @@ const Stocks = () => {
     const now = new Date();
     const hours = now.getHours();
     const day = now.getDay();
-    
+
     // Simple market hours check (9:30 AM - 4:00 PM ET, Mon-Fri)
-    if (day === 0 || day === 6) return 'closed'; // Weekend
-    if (hours < 9 || hours >= 16) return 'closed'; // Outside market hours
-    return 'open';
+    if (day === 0 || day === 6) return "closed"; // Weekend
+    if (hours < 9 || hours >= 16) return "closed"; // Outside market hours
+    return "open";
   };
 
   const marketStatus = getMarketStatus();
@@ -143,13 +149,16 @@ const Stocks = () => {
               <h1>Stock Market</h1>
               <p>Real-time stock prices and market data</p>
             </div>
-            <button 
+            <button
               onClick={loadPopularStocks}
               disabled={refreshing}
               className="btn-refresh-stocks"
             >
-              <RefreshCw size={20} className={refreshing ? 'animate-spin' : ''} />
-              {refreshing ? 'Refreshing...' : 'Refresh All'}
+              <RefreshCw
+                size={20}
+                className={refreshing ? "animate-spin" : ""}
+              />
+              {refreshing ? "Refreshing..." : "Refresh All"}
             </button>
           </div>
         </div>
@@ -164,17 +173,17 @@ const Stocks = () => {
                 placeholder="Search stock symbol (e.g., AAPL, TSLA, GOOGL)..."
                 value={searchSymbol}
                 onChange={(e) => setSearchSymbol(e.target.value.toUpperCase())}
-                onKeyPress={(e) => e.key === 'Enter' && searchStock()}
+                onKeyPress={(e) => e.key === "Enter" && searchStock()}
                 className="stocks-search-input"
               />
             </div>
-            <button 
+            <button
               onClick={searchStock}
               disabled={loading || !searchSymbol.trim()}
               className="btn-search"
             >
               <Search size={20} />
-              {loading ? 'Searching...' : 'Search Stock'}
+              {loading ? "Searching..." : "Search Stock"}
             </button>
           </div>
         </div>
@@ -196,14 +205,26 @@ const Stocks = () => {
 
         {/* Market Status */}
         <div className="stocks-search-card">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '16px' }}>
-            <span style={{ color: 'white', fontWeight: '600' }}>Market Status:</span>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "16px",
+            }}
+          >
+            <span style={{ color: "white", fontWeight: "600" }}>
+              Market Status:
+            </span>
             <span className={`market-status ${marketStatus}`}>
               <Activity size={14} />
-              {marketStatus === 'open' ? 'Market Open' : 'Market Closed'}
+              {marketStatus === "open" ? "Market Open" : "Market Closed"}
             </span>
-            <span style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.9rem' }}>
-              Live prices {marketStatus === 'open' ? 'updating' : 'from last close'}
+            <span
+              style={{ color: "rgba(255, 255, 255, 0.7)", fontSize: "0.9rem" }}
+            >
+              Live prices{" "}
+              {marketStatus === "open" ? "updating" : "from last close"}
             </span>
           </div>
         </div>
@@ -218,9 +239,9 @@ const Stocks = () => {
             {stocks.length > 0 && (
               <div className="stocks-grid">
                 {stocks.map((stock, index) => (
-                  <div 
-                    key={`${stock.symbol}-${index}`} 
-                    className={`stock-card ${index === 0 ? 'featured' : ''}`}
+                  <div
+                    key={`${stock.symbol}-${index}`}
+                    className={`stock-card ${index === 0 ? "featured" : ""}`}
                     style={{ animationDelay: `${index * 0.1}s` }}
                   >
                     <div className="stock-header">
@@ -235,11 +256,18 @@ const Stocks = () => {
                       </div>
                       <div className="stock-price-section">
                         <div className="stock-price">
-                          ${formatPrice(stock.current_price)}
+                          ₹{formatPrice(stock.current_price)}
                         </div>
-                        <div className={`stock-change ${getPriceChangeClass(stock.price_change)}`}>
+                        <div
+                          className={`stock-change ${getPriceChangeClass(
+                            stock.price_change
+                          )}`}
+                        >
                           {getPriceChangeIcon(stock.price_change)}
-                          {formatChange(stock.price_change, stock.price_change_percent)}
+                          {formatChange(
+                            stock.price_change,
+                            stock.price_change_percent
+                          )}
                         </div>
                       </div>
                     </div>
@@ -247,18 +275,32 @@ const Stocks = () => {
                     <div className="stock-details">
                       <div className="detail-item">
                         <span className="detail-label">Currency</span>
-                        <span className="detail-value">{stock.currency || 'USD'}</span>
+                        <span className="detail-value">
+                          {stock.currency || "INR"}
+                        </span>
                       </div>
                       <div className="detail-item">
                         <span className="detail-label">Day Change</span>
-                        <span className={`detail-value ${getPriceChangeClass(stock.price_change)}`}>
+                        <span
+                          className={`detail-value ${getPriceChangeClass(
+                            stock.price_change
+                          )}`}
+                        >
                           {formatChange(stock.price_change)}
                         </span>
                       </div>
                       <div className="detail-item">
                         <span className="detail-label">Change %</span>
-                        <span className={`detail-value ${getPriceChangeClass(stock.price_change)}`}>
-                          {stock.price_change_percent ? `${stock.price_change >= 0 ? '+' : ''}${stock.price_change_percent.toFixed(2)}%` : 'N/A'}
+                        <span
+                          className={`detail-value ${getPriceChangeClass(
+                            stock.price_change
+                          )}`}
+                        >
+                          {stock.price_change_percent
+                            ? `${
+                                stock.price_change >= 0 ? "+" : ""
+                              }${stock.price_change_percent.toFixed(2)}%`
+                            : "N/A"}
                         </span>
                       </div>
                       <div className="detail-item">
@@ -269,7 +311,10 @@ const Stocks = () => {
 
                     {stock.note && (
                       <div className="stock-note">
-                        <Sparkles size={14} style={{ display: 'inline', marginRight: '8px' }} />
+                        <Sparkles
+                          size={14}
+                          style={{ display: "inline", marginRight: "8px" }}
+                        />
                         {stock.note}
                       </div>
                     )}
@@ -286,9 +331,13 @@ const Stocks = () => {
                 </div>
                 <h2 className="stocks-empty-title">No stock data</h2>
                 <p className="stocks-empty-description">
-                  Search for stock symbols using the search bar above or load popular stocks to get started with market data.
+                  Search for stock symbols using the search bar above or load
+                  popular stocks to get started with market data.
                 </p>
-                <button onClick={loadPopularStocks} className="btn-refresh-stocks">
+                <button
+                  onClick={loadPopularStocks}
+                  className="btn-refresh-stocks"
+                >
                   <Sparkles size={20} />
                   Load Popular Stocks
                 </button>

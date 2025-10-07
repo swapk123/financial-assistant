@@ -17,22 +17,30 @@ import {
   TrendingDown,
   Trash2,
   Calendar,
-  X
+  X,
+  RefreshCw,
+  AlertCircle,
+  Download,
+  PieChart
 } from 'lucide-react';
+import LoadingSpinner from '../components/common/LoadingSpinner';
 
 const Transactions = () => {
   const { user } = useAuth();
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const [error, setError] = useState('');
 
   const [formData, setFormData] = useState({
     amount: '',
     category: 'food',
     description: '',
-    type: 'expense'
+    type: 'expense',
+    date: new Date().toISOString().split('T')[0] // Default to today
   });
 
   const categories = [
@@ -42,6 +50,8 @@ const Transactions = () => {
     { value: 'entertainment', label: 'Entertainment', icon: Film, color: 'category-entertainment' },
     { value: 'bills', label: 'Bills & Utilities', icon: Home, color: 'category-bills' },
     { value: 'healthcare', label: 'Healthcare', icon: Heart, color: 'category-healthcare' },
+    { value: 'salary', label: 'Salary', icon: TrendingUp, color: 'category-salary' },
+    { value: 'investment', label: 'Investment', icon: PieChart, color: 'category-investment' },
     { value: 'other', label: 'Other', icon: CreditCard, color: 'category-other' }
   ];
 
@@ -54,23 +64,32 @@ const Transactions = () => {
   const fetchTransactions = async () => {
     try {
       setLoading(true);
+      setError('');
       const response = await financialAPI.getTransactions(user.user_id);
       if (response.data.success) {
         setTransactions(response.data.transactions || []);
+      } else {
+        setError('Failed to load transactions');
       }
     } catch (error) {
       console.error('Error fetching transactions:', error);
-      alert('Failed to load transactions');
+      setError('Failed to load transactions. Please try again.');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchTransactions();
   };
 
   const handleAddTransaction = async (e) => {
     e.preventDefault();
     
     if (!formData.amount || !formData.description) {
-      alert('Please fill in amount and description');
+      setError('Please fill in amount and description');
       return;
     }
 
@@ -88,15 +107,16 @@ const Transactions = () => {
           amount: '',
           category: 'food',
           description: '',
-          type: 'expense'
+          type: 'expense',
+          date: new Date().toISOString().split('T')[0]
         });
         setShowForm(false);
-        fetchTransactions();
-        alert('Transaction added successfully!');
+        setError('');
+        await fetchTransactions();
       }
     } catch (error) {
       console.error('Error adding transaction:', error);
-      alert('Failed to add transaction');
+      setError('Failed to add transaction. Please try again.');
     }
   };
 
@@ -107,12 +127,35 @@ const Transactions = () => {
 
     try {
       await financialAPI.deleteTransaction(transactionId);
-      fetchTransactions();
-      alert('Transaction deleted successfully!');
+      await fetchTransactions();
     } catch (error) {
       console.error('Error deleting transaction:', error);
-      alert('Failed to delete transaction');
+      setError('Failed to delete transaction. Please try again.');
     }
+  };
+
+  const handleExportTransactions = () => {
+    // Simple export to CSV
+    const headers = ['Date', 'Description', 'Category', 'Type', 'Amount'];
+    const csvData = filteredTransactions.map(t => [
+      formatDate(t.date),
+      t.description,
+      t.category,
+      t.type,
+      t.amount
+    ]);
+    
+    const csvContent = [headers, ...csvData]
+      .map(row => row.map(field => `"${field}"`).join(','))
+      .join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `transactions-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
   };
 
   const filteredTransactions = transactions.filter(transaction => {
@@ -120,7 +163,7 @@ const Transactions = () => {
     const matchesSearch = transaction.description?.toLowerCase().includes(search.toLowerCase()) ||
                          transaction.category?.toLowerCase().includes(search.toLowerCase());
     return matchesFilter && matchesSearch;
-  });
+  }).sort((a, b) => new Date(b.date) - new Date(a.date)); // Sort by date descending
 
   const totalIncome = filteredTransactions
     .filter(t => t.type === 'income')
@@ -135,12 +178,14 @@ const Transactions = () => {
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
-      currency: 'INR'
+      currency: 'INR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2
     }).format(amount);
   };
 
   const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    return new Date(dateString).toLocaleDateString('en-IN', {
       year: 'numeric',
       month: 'short',
       day: 'numeric'
@@ -158,6 +203,16 @@ const Transactions = () => {
     return category ? category.color : 'category-other';
   };
 
+  const getCategoryColor = (categoryValue) => {
+    const category = categories.find(c => c.value === categoryValue);
+    return category ? category.color : 'category-other';
+  };
+
+  const clearFilters = () => {
+    setFilter('all');
+    setSearch('');
+  };
+
   return (
     <div className="transactions-page">
       <div className="transactions-container">
@@ -169,15 +224,41 @@ const Transactions = () => {
               <h1>Transactions</h1>
               <p>Manage your income and expenses</p>
             </div>
-            <button
-              onClick={() => setShowForm(true)}
-              className="add-transaction-btn"
-            >
-              <Plus size={20} />
-              Add Transaction
-            </button>
+            <div className="header-actions">
+              <button
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="btn-refresh"
+              >
+                <RefreshCw size={20} className={refreshing ? 'animate-spin' : ''} />
+                {refreshing ? 'Refreshing...' : 'Refresh'}
+              </button>
+              <button
+                onClick={() => setShowForm(true)}
+                className="add-transaction-btn"
+              >
+                <Plus size={20} />
+                Add Transaction
+              </button>
+            </div>
           </div>
         </div>
+
+        {/* Error Display */}
+        {error && (
+          <div className="error-card">
+            <div className="error-icon">
+              <AlertCircle size={24} />
+            </div>
+            <div className="error-content">
+              <h3>Error</h3>
+              <p>{error}</p>
+            </div>
+            <button onClick={() => setError('')} className="btn-close-error">
+              <X size={20} />
+            </button>
+          </div>
+        )}
 
         {/* Add Transaction Form Modal */}
         {showForm && (
@@ -218,43 +299,57 @@ const Transactions = () => {
                 </div>
 
                 {/* Amount and Category */}
-                <div className="form-group">
-                  <label className="form-label">Amount *</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={formData.amount}
-                    onChange={(e) => setFormData({...formData, amount: e.target.value})}
-                    className="form-input"
-                    required
-                  />
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Amount *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={formData.amount}
+                      onChange={(e) => setFormData({...formData, amount: e.target.value})}
+                      className="form-input"
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Date</label>
+                    <input
+                      type="date"
+                      value={formData.date}
+                      onChange={(e) => setFormData({...formData, date: e.target.value})}
+                      className="form-input"
+                    />
+                  </div>
                 </div>
 
                 <div className="form-group">
                   <label className="form-label">Category</label>
-                  <select
-                    value={formData.category}
-                    onChange={(e) => setFormData({...formData, category: e.target.value})}
-                    className="form-select"
-                  >
+                  <div className="category-grid">
                     {categories.map(category => (
-                      <option key={category.value} value={category.value}>
+                      <button
+                        key={category.value}
+                        type="button"
+                        className={`category-btn ${formData.category === category.value ? 'active' : ''} ${getCategoryColor(category.value)}`}
+                        onClick={() => setFormData({...formData, category: category.value})}
+                      >
+                        <category.icon size={16} />
                         {category.label}
-                      </option>
+                      </button>
                     ))}
-                  </select>
+                  </div>
                 </div>
 
                 {/* Description */}
                 <div className="form-group">
                   <label className="form-label">Description *</label>
-                  <input
-                    type="text"
+                  <textarea
                     placeholder="What was this transaction for?"
                     value={formData.description}
                     onChange={(e) => setFormData({...formData, description: e.target.value})}
-                    className="form-input"
+                    className="form-textarea"
+                    rows="3"
                     required
                   />
                 </div>
@@ -262,6 +357,7 @@ const Transactions = () => {
                 {/* Form Actions */}
                 <div className="form-actions">
                   <button type="submit" className="submit-btn">
+                    <Plus size={20} />
                     Add Transaction
                   </button>
                   <button
@@ -311,7 +407,8 @@ const Transactions = () => {
               <div className="summary-text">
                 <h3>Net Balance</h3>
                 <p className={`amount ${netBalance >= 0 ? 'positive' : 'negative'}`}>
-                  {formatCurrency(netBalance)}
+                  {formatCurrency(Math.abs(netBalance))}
+                  {netBalance >= 0 ? ' 🎉' : ' 💸'}
                 </p>
               </div>
             </div>
@@ -330,6 +427,11 @@ const Transactions = () => {
                 onChange={(e) => setSearch(e.target.value)}
                 className="search-input"
               />
+              {search && (
+                <button onClick={() => setSearch('')} className="clear-search">
+                  <X size={16} />
+                </button>
+              )}
             </div>
             
             <div className="filter-container">
@@ -347,19 +449,39 @@ const Transactions = () => {
                 ))}
               </select>
             </div>
+
+            {(search || filter !== 'all') && (
+              <button onClick={clearFilters} className="clear-filters-btn">
+                Clear Filters
+              </button>
+            )}
+
+            <button onClick={handleExportTransactions} className="export-btn">
+              <Download size={20} />
+              Export CSV
+            </button>
           </div>
         </div>
 
         {/* Transactions List */}
         <div className="transactions-list-container">
           <div className="transactions-header-row">
-            <h3>Transactions ({filteredTransactions.length})</h3>
+            <h3>
+              Transactions 
+              <span className="transaction-count">
+                ({filteredTransactions.length} of {transactions.length})
+              </span>
+            </h3>
+            <div className="transaction-stats">
+              <span className="stat income">Income: {formatCurrency(totalIncome)}</span>
+              <span className="stat expense">Expenses: {formatCurrency(totalExpenses)}</span>
+            </div>
           </div>
 
           {/* Loading State */}
           {loading && (
             <div className="loading-container">
-              <div className="loading-spinner"></div>
+              <LoadingSpinner />
               <p className="loading-text">Loading transactions...</p>
             </div>
           )}
@@ -377,23 +499,30 @@ const Transactions = () => {
                   : "Try adjusting your search or filter criteria."
                 }
               </p>
-              {transactions.length === 0 && (
-                <button
-                  onClick={() => setShowForm(true)}
-                  className="add-transaction-btn"
-                >
-                  <Plus size={20} />
-                  Add Your First Transaction
-                </button>
-              )}
+              <div className="empty-actions">
+                {transactions.length === 0 && (
+                  <button
+                    onClick={() => setShowForm(true)}
+                    className="add-transaction-btn"
+                  >
+                    <Plus size={20} />
+                    Add Your First Transaction
+                  </button>
+                )}
+                {(search || filter !== 'all') && (
+                  <button onClick={clearFilters} className="clear-filters-btn">
+                    Clear Filters
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
           {/* Transactions List */}
           {!loading && filteredTransactions.length > 0 && (
-            <ul className="transaction-items">
+            <div className="transaction-items">
               {filteredTransactions.map((transaction) => (
-                <li key={transaction.transaction_id || transaction._id} className="transaction-item">
+                <div key={transaction.transaction_id || transaction._id} className="transaction-item">
                   <div className="transaction-content">
                     <div className="transaction-info">
                       <div className={`transaction-icon ${getCategoryClass(transaction.category)}`}>
@@ -404,7 +533,7 @@ const Transactions = () => {
                           {transaction.description || 'No description'}
                         </h4>
                         <div className="transaction-meta">
-                          <span className="transaction-category capitalize">
+                          <span className={`transaction-category ${getCategoryColor(transaction.category)}`}>
                             {transaction.category}
                           </span>
                           <span className="transaction-date">
@@ -432,9 +561,9 @@ const Transactions = () => {
                       </button>
                     </div>
                   </div>
-                </li>
+                </div>
               ))}
-            </ul>
+            </div>
           )}
 
           {/* Summary Footer */}

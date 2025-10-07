@@ -8,6 +8,7 @@ import os
 import shutil
 import uuid
 from bson import ObjectId
+import json
 
 # Use your existing database class
 from database.mongodb import db
@@ -634,7 +635,10 @@ async def upload_bank_statement(file: UploadFile = File(...), user_id: str = For
             "original_filename": file.filename,
             "file_path": file_path,
             "extracted_data": extraction_result,
-            "uploaded_at": datetime.utcnow()
+            "uploaded_at": datetime.utcnow(),
+            "transactions_saved": False,  # NEW: Track if transactions are saved
+            "saved_count": 0,  # NEW: Count of saved transactions
+            "failed_count": 0  # NEW: Count of failed saves
         }
         
         result = bank_statements_collection.insert_one(statement_data)
@@ -678,6 +682,229 @@ async def get_user_bank_statements(user_id: str):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch statements: {str(e)}")
+
+# ===== FIXED: BANK STATEMENT TRANSACTION SAVING =====
+
+@app.post("/api/save-extracted-transactions")
+async def save_extracted_transactions(
+    user_id: str = Form(...),
+    statement_id: str = Form(...),
+    transactions_to_save: str = Form(...)  # JSON string of transactions
+):
+    """Save extracted bank statement transactions to user's transaction history"""
+    try:
+        ensure_database_connected()
+        
+        transactions_collection = db.get_collection("transactions")
+        bank_statements_collection = db.get_collection("bank_statements")
+        
+        # FIX: Use explicit None checks instead of truthy checks
+        if transactions_collection is None or bank_statements_collection is None:
+            raise HTTPException(status_code=500, detail="Database collections not accessible")
+        
+        # Get the bank statement data
+        statement = bank_statements_collection.find_one({
+            "statement_id": statement_id, 
+            "user_id": user_id
+        })
+        
+        if not statement:
+            raise HTTPException(status_code=404, detail="Bank statement not found")
+        
+        # Parse transactions from form data
+        transactions_data = json.loads(transactions_to_save)
+        
+        saved_transactions = []
+        failed_transactions = []
+        
+        # Save each transaction
+        for transaction_data in transactions_data:
+            try:
+                transaction_id = f"bank_txn_{ObjectId()}"
+                
+                # Map bank statement fields to transaction fields
+                transaction_record = {
+                    "transaction_id": transaction_id,
+                    "user_id": user_id,
+                    "amount": float(transaction_data["amount"]),
+                    "category": transaction_data.get("category", "other"),
+                    "description": transaction_data.get("description", "Bank Statement Transaction"),
+                    "type": "income" if transaction_data.get("type") == "credit" else "expense",
+                    "date": datetime.fromisoformat(transaction_data["date"]),
+                    "source": "bank_statement",
+                    "statement_id": statement_id,
+                    "created_at": datetime.utcnow()
+                }
+                
+                result = transactions_collection.insert_one(transaction_record)
+                saved_transactions.append(transaction_id)
+                
+            except Exception as e:
+                failed_transactions.append({
+                    "transaction": transaction_data,
+                    "error": str(e)
+                })
+        
+        # Update bank statement with save status
+        bank_statements_collection.update_one(
+            {"statement_id": statement_id},
+            {
+                "$set": {
+                    "transactions_saved": True,
+                    "saved_at": datetime.utcnow(),
+                    "saved_count": len(saved_transactions),
+                    "failed_count": len(failed_transactions)
+                }
+            }
+        )
+        
+        return {
+            "success": True,
+            "message": f"Successfully saved {len(saved_transactions)} transactions",
+            "saved_count": len(saved_transactions),
+            "failed_count": len(failed_transactions),
+            "saved_transactions": saved_transactions,
+            "failed_transactions": failed_transactions
+        }
+        
+    except Exception as e:
+        print(f"❌ Error saving transactions: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to save transactions: {str(e)}")
+
+@app.get("/api/bank-statements/{statement_id}/transactions")
+async def get_statement_transactions(statement_id: str, user_id: str):
+    """Get extracted transactions from a specific bank statement"""
+    try:
+        ensure_database_connected()
+        
+        bank_statements_collection = db.get_collection("bank_statements")
+        if bank_statements_collection is None:
+            raise HTTPException(status_code=500, detail="Database collection not accessible")
+        
+        statement = bank_statements_collection.find_one({
+            "statement_id": statement_id, 
+            "user_id": user_id
+        })
+        
+        if not statement:
+            raise HTTPException(status_code=404, detail="Bank statement not found")
+        
+        # Check which transactions are already saved
+        transactions_collection = db.get_collection("transactions")
+        saved_transactions = list(transactions_collection.find({
+            "user_id": user_id,
+            "statement_id": statement_id
+        }))
+        
+        saved_transaction_ids = [t["transaction_id"] for t in saved_transactions]
+        
+        extracted_transactions = statement.get("extracted_data", {}).get("transactions", [])
+        
+        # Mark which transactions are already saved
+        for transaction in extracted_transactions:
+            transaction["already_saved"] = any(
+                saved_txn.get("description") == transaction.get("description") and
+                saved_txn.get("amount") == transaction.get("amount") and
+                saved_txn.get("date") == transaction.get("date")
+                for saved_txn in saved_transactions
+            )
+        
+        return {
+            "success": True,
+            "statement_id": statement_id,
+            "transactions": extracted_transactions,
+            "total_transactions": len(extracted_transactions),
+            "already_saved_count": len(saved_transaction_ids),
+            "can_save": len(extracted_transactions) > len(saved_transaction_ids)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get statement transactions: {str(e)}")
+
+@app.post("/api/categorize-transactions")
+async def auto_categorize_transactions(transactions: list):
+    """Auto-categorize transactions based on description"""
+    try:
+        # Simple categorization logic
+        category_keywords = {
+            "food": ["restaurant", "cafe", "food", "lunch", "dinner", "coffee", "groceries"],
+            "shopping": ["mall", "shop", "store", "amazon", "flipkart", "purchase"],
+            "transport": ["uber", "ola", "bus", "metro", "train", "fuel", "petrol"],
+            "entertainment": ["movie", "netflix", "prime", "game", "concert"],
+            "bills": ["electricity", "water", "internet", "mobile", "bill"],
+            "salary": ["salary", "payroll", "income"],
+            "healthcare": ["hospital", "doctor", "medical", "pharmacy"]
+        }
+        
+        categorized_transactions = []
+        
+        for transaction in transactions:
+            description = transaction.get("description", "").lower()
+            category = "other"
+            
+            for cat, keywords in category_keywords.items():
+                if any(keyword in description for keyword in keywords):
+                    category = cat
+                    break
+            
+            transaction["suggested_category"] = category
+            categorized_transactions.append(transaction)
+        
+        return {
+            "success": True,
+            "categorized_transactions": categorized_transactions
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Categorization failed: {str(e)}")
+
+@app.delete("/api/bank-statements/{statement_id}")
+async def delete_bank_statement(statement_id: str, user_id: str):
+    """Delete a bank statement and its associated transactions"""
+    try:
+        ensure_database_connected()
+        
+        bank_statements_collection = db.get_collection("bank_statements")
+        transactions_collection = db.get_collection("transactions")
+        
+        if bank_statements_collection is None or transactions_collection is None:
+            raise HTTPException(status_code=500, detail="Database collections not accessible")
+        
+        # Find the statement first
+        statement = bank_statements_collection.find_one({
+            "statement_id": statement_id, 
+            "user_id": user_id
+        })
+        
+        if not statement:
+            raise HTTPException(status_code=404, detail="Bank statement not found")
+        
+        # Delete associated transactions
+        transactions_result = transactions_collection.delete_many({
+            "user_id": user_id,
+            "statement_id": statement_id
+        })
+        
+        # Delete the statement
+        statement_result = bank_statements_collection.delete_one({
+            "statement_id": statement_id,
+            "user_id": user_id
+        })
+        
+        # Delete the physical file
+        file_path = statement.get("file_path")
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
+        
+        return {
+            "success": True,
+            "message": "Bank statement deleted successfully",
+            "transactions_deleted": transactions_result.deleted_count,
+            "statements_deleted": statement_result.deleted_count
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete statement: {str(e)}")
 
 # Test all features
 @app.get("/api/test-all")
@@ -725,7 +952,9 @@ async def test_all_features():
                 "financial_insights",
                 "stock_data",
                 "sample_data_creation",
-                "bank_statement_upload"
+                "bank_statement_upload",
+                "save_extracted_transactions",  # NEW
+                "auto_categorization"  # NEW
             ],
             "test_user_id": user_id,
             "database_stats": {
@@ -746,4 +975,5 @@ if __name__ == "__main__":
     print("🌐 Server will be available at: http://localhost:8000")
     print("📚 API Documentation: http://localhost:8000/docs")
     print("🏦 Bank Statement Upload: ENABLED")
+    print("💾 Transaction Saving: ENABLED")
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)

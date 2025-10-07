@@ -56,7 +56,40 @@ export const uploadAPI = {
     });
   },
   
-  // Add these additional methods for better functionality
+  // NEW: Save extracted transactions to user profile
+  saveExtractedTransactions: (user_id, statement_id, transactions) => {
+    const formData = new FormData();
+    formData.append('user_id', user_id);
+    formData.append('statement_id', statement_id);
+    formData.append('transactions_to_save', JSON.stringify(transactions));
+    
+    return api.post('/save-extracted-transactions', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+  },
+
+  // NEW: Get transactions from specific bank statement
+  getStatementTransactions: (statement_id, user_id) => {
+    return api.get(`/bank-statements/${statement_id}/transactions`, {
+      params: { user_id }
+    });
+  },
+
+  // NEW: Auto-categorize transactions
+  categorizeTransactions: (transactions) => {
+    return api.post('/categorize-transactions', transactions);
+  },
+
+  // NEW: Delete bank statement
+  deleteBankStatement: (statement_id, user_id) => {
+    return api.delete(`/bank-statements/${statement_id}`, {
+      params: { user_id }
+    });
+  },
+
+  // Existing methods
   getUserStatements: (userId) => api.get(`/bank-statements/${userId}`),
   getStatement: (statementId) => api.get(`/bank-statement/${statementId}`),
   deleteStatement: (statementId) => api.delete(`/bank-statement/${statementId}`),
@@ -104,7 +137,95 @@ export const financialAPI = {
   // Create sample data - CORRECTED to use POST method
   createSampleData: (userId) => {
     return api.post(`/create-sample-data/${userId}`);
+  },
+
+  // NEW: Debug endpoint to check transactions
+  debugTransactions: (userId = null) => {
+    const params = userId ? { user_id: userId } : {};
+    return api.get('/debug/transactions', { params });
+  },
+
+  // NEW: Test all features
+  testAllFeatures: () => {
+    return api.get('/test-all');
+  },
+
+  // NEW: Health check
+  healthCheck: () => {
+    return api.get('/health');
+  },
+
+  // NEW: Database test
+  testDatabase: () => {
+    return api.get('/test-db');
   }
 };
+
+// NEW: Utility functions for bank statement processing
+export const bankStatementUtils = {
+  // Format transaction for display
+  formatTransaction: (transaction) => {
+    return {
+      ...transaction,
+      formattedAmount: new Intl.NumberFormat('en-IN', {
+        style: 'currency',
+        currency: 'INR',
+        minimumFractionDigits: 2
+      }).format(transaction.amount),
+      displayDate: new Date(transaction.date).toLocaleDateString('en-IN'),
+      type: transaction.type || (transaction.amount >= 0 ? 'credit' : 'debit')
+    };
+  },
+
+  // Filter transactions by type
+  filterTransactions: (transactions, type = 'all') => {
+    if (type === 'all') return transactions;
+    return transactions.filter(t => t.type === type);
+  },
+
+  // Calculate summary from transactions
+  calculateSummary: (transactions) => {
+    const totalIncome = transactions
+      .filter(t => t.type === 'credit')
+      .reduce((sum, t) => sum + t.amount, 0);
+    
+    const totalExpenses = transactions
+      .filter(t => t.type === 'debit')
+      .reduce((sum, t) => sum + t.amount, 0);
+    
+    const netFlow = totalIncome - totalExpenses;
+    
+    return {
+      total_income: totalIncome,
+      total_expenses: totalExpenses,
+      net_flow: netFlow,
+      transaction_count: transactions.length,
+      average_transaction: transactions.length > 0 ? (totalIncome + totalExpenses) / transactions.length : 0
+    };
+  },
+
+  // Validate transaction before saving
+  validateTransaction: (transaction) => {
+    const errors = [];
+    
+    if (!transaction.amount || isNaN(transaction.amount)) {
+      errors.push('Invalid amount');
+    }
+    
+    if (!transaction.description?.trim()) {
+      errors.push('Description is required');
+    }
+    
+    if (!transaction.date) {
+      errors.push('Date is required');
+    }
+    
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  }
+};
+
 
 export default api;

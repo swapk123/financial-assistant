@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../utils/AuthContext';
-import { uploadAPI } from '../utils/api';
+import { uploadAPI} from '../utils/api';
 import { 
   Upload, 
   FileText, 
@@ -10,16 +10,22 @@ import {
   CheckCircle,
   AlertCircle,
   Sparkles,
-  BanknoteIcon
+  BanknoteIcon,
+  Save,
+  Eye,
+  Edit
 } from 'lucide-react';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 
 const BankStatementUpload = () => {
   const { user } = useAuth();
   const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
   const [error, setError] = useState('');
   const [dragOver, setDragOver] = useState(false);
+  const [showTransactions, setShowTransactions] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   const handleFileUpload = async (file) => {
     if (!file) return;
@@ -37,6 +43,7 @@ const BankStatementUpload = () => {
     setUploading(true);
     setError('');
     setUploadResult(null);
+    setSaveSuccess(false);
 
     try {
       const response = await uploadAPI.uploadStatement(file, user.user_id);
@@ -55,6 +62,40 @@ const BankStatementUpload = () => {
       setError(errorMessage);
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleSaveTransactions = async () => {
+    if (!uploadResult?.data?.transactions?.length) return;
+    
+    setSaving(true);
+    setError('');
+
+    try {
+      const response = await uploadAPI.saveExtractedTransactions(
+        user.user_id,
+        uploadResult.statement_id,
+        uploadResult.data.transactions
+      );
+
+      if (response.data.success) {
+        setSaveSuccess(true);
+        // Update the upload result to show transactions are saved
+        setUploadResult(prev => ({
+          ...prev,
+          transactions_saved: true,
+          saved_count: response.data.saved_count
+        }));
+      } else {
+        setError('Failed to save transactions to profile');
+      }
+    } catch (err) {
+      console.error('Save error:', err);
+      const errorMessage = err.response?.data?.detail || 
+                          'Failed to save transactions. Please try again.';
+      setError(errorMessage);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -78,7 +119,7 @@ const BankStatementUpload = () => {
   };
 
   const formatAmount = (amount) => {
-    return new Intl.NumberFormat('en-IN', { // Changed to Indian format
+    return new Intl.NumberFormat('en-IN', {
       style: 'currency',
       currency: 'INR',
       minimumFractionDigits: 2
@@ -86,13 +127,16 @@ const BankStatementUpload = () => {
   };
 
   const handleViewFullAnalysis = () => {
-    // Navigate to detailed analysis page or show modal
-    console.log('View full analysis', uploadResult);
+    setShowTransactions(true);
   };
 
   const handleExportReport = () => {
     // Implement export functionality
     console.log('Export report', uploadResult);
+  };
+
+  const handleCloseTransactions = () => {
+    setShowTransactions(false);
   };
 
   return (
@@ -116,7 +160,7 @@ const BankStatementUpload = () => {
               </div>
               <div className="stat-item">
                 <TrendingUp size={20} />
-                <span>Instant Insights</span>
+                <span>Save to Profile</span>
               </div>
             </div>
           </div>
@@ -134,6 +178,13 @@ const BankStatementUpload = () => {
               <div className="upload-error">
                 <AlertCircle size={20} />
                 {error}
+              </div>
+            )}
+
+            {saveSuccess && (
+              <div className="save-success">
+                <CheckCircle size={20} />
+                <span>Transactions saved to your profile successfully!</span>
               </div>
             )}
 
@@ -185,6 +236,19 @@ const BankStatementUpload = () => {
                   Successfully processed {uploadResult.data?.transactions?.length || 0} transactions
                   {uploadResult.data?.bank_type && ` from ${uploadResult.data.bank_type}`}
                 </p>
+                
+                {/* Save Status */}
+                {uploadResult.transactions_saved ? (
+                  <div className="save-status saved">
+                    <CheckCircle size={16} />
+                    <span>{uploadResult.saved_count || uploadResult.data?.transactions?.length} transactions saved to profile</span>
+                  </div>
+                ) : (
+                  <div className="save-status unsaved">
+                    <AlertCircle size={16} />
+                    <span>Transactions not saved to profile yet</span>
+                  </div>
+                )}
               </div>
 
               {/* Account Information */}
@@ -288,11 +352,32 @@ const BankStatementUpload = () => {
 
               {/* Actions */}
               <div className="analysis-actions">
-                <button className="btn-primary" onClick={handleViewFullAnalysis}>
-                  <PieChart size={20} />
-                  View Full Analysis
+                {!uploadResult.transactions_saved && (
+                  <button 
+                    className="btn-primary" 
+                    onClick={handleSaveTransactions}
+                    disabled={saving}
+                  >
+                    {saving ? (
+                      <>
+                        <LoadingSpinner size={16} />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save size={20} />
+                        Save to Profile
+                      </>
+                    )}
+                  </button>
+                )}
+                
+                <button className="btn-secondary" onClick={handleViewFullAnalysis}>
+                  <Eye size={20} />
+                  View All Transactions
                 </button>
-                <button className="btn-secondary" onClick={handleExportReport}>
+                
+                <button className="btn-outline" onClick={handleExportReport}>
                   <Download size={20} />
                   Export Report
                 </button>
@@ -322,8 +407,8 @@ const BankStatementUpload = () => {
                 <div className="instruction-item">
                   <div className="instruction-step">3</div>
                   <div className="instruction-content">
-                    <strong>Get Insights</strong>
-                    <p>Receive detailed financial analysis and insights</p>
+                    <strong>Save to Profile</strong>
+                    <p>Save extracted transactions to your financial profile</p>
                   </div>
                 </div>
               </div>
@@ -342,6 +427,48 @@ const BankStatementUpload = () => {
             </div>
           )}
         </div>
+
+        {/* Transactions Modal */}
+        {showTransactions && uploadResult?.data?.transactions && (
+          <div className="transactions-modal">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h2>All Transactions</h2>
+                <button className="close-button" onClick={handleCloseTransactions}>
+                  ×
+                </button>
+              </div>
+              <div className="transactions-full-list">
+                {uploadResult.data.transactions.map((transaction, index) => (
+                  <div key={index} className="transaction-full-item">
+                    <div className="transaction-icon">
+                      {transaction.type === 'credit' ? (
+                        <TrendingUp size={16} className="credit" />
+                      ) : (
+                        <TrendingUp size={16} className="debit" />
+                      )}
+                    </div>
+                    <div className="transaction-details">
+                      <span className="transaction-date">
+                        {transaction.date}
+                      </span>
+                      <span className="transaction-description">
+                        {transaction.description}
+                      </span>
+                      <span className="transaction-category">
+                        {transaction.category}
+                      </span>
+                    </div>
+                    <div className={`transaction-amount ${transaction.type}`}>
+                      {transaction.type === 'credit' ? '+' : '-'}
+                      {formatAmount(transaction.amount)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
